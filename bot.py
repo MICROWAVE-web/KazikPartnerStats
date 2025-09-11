@@ -36,9 +36,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 def make_links_text(user_id: int) -> str:
     return (
         "Ссылка для регистрации:\n"
-        f"<code>{PREFIX}/{user_id}/registration?player_id=${{player_id}}&btag=${{btag}}</code>\n\n"
+        f"<code>{PREFIX}/{user_id}/registration?player_id=${{btag}}</code>\n\n"
         "Ссылка для первого депозита:\n"
-        f"<code>{PREFIX}/{user_id}/firstdep?player_id=${{player_id}}&btag=${{btag}}</code>"
+        f"<code>{PREFIX}/{user_id}/firstdep?player_id=${{btag}}</code>"
     )
 
 
