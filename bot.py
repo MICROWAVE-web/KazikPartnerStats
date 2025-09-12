@@ -61,7 +61,7 @@ def format_report(user_id: int, period: str) -> str:
         return "\n".join([
             f"📊 Отчет ({title})",
             "",
-            "💠 Итоги",
+            "🤑 ==== ROYAL ==== 🤑",
             *totals_lines,
             "",
             "Нет данных.",
@@ -325,7 +325,7 @@ async def run_bot():
 
 
 def _build_compact_totals_text(user_id: int) -> str:
-    lines = ["💠 Итоги"]
+    lines = ["🤑 ==== ROYAL ==== 🤑"]
     # reuse fixed period totals lines (hour/day/week/month)
     lines.extend(_fixed_period_totals_lines(user_id))
     return "\n".join(lines)
