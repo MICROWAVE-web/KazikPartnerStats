@@ -46,6 +46,16 @@ def init_db() -> None:
             );
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shared_access (
+                owner_telegram_user_id INTEGER NOT NULL,
+                viewer_telegram_user_id INTEGER NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (owner_telegram_user_id, viewer_telegram_user_id)
+            );
+            """
+        )
 
 
 def ensure_user(telegram_user_id: int) -> None:
@@ -195,5 +205,88 @@ def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int
             btag = row["btag"] or ""
             results[btag] = (int(row["registrations"]), int(row["first_deps"]), float(row["reward_sum"]))
     return results
+
+
+def get_period_range(telegram_user_id: int, period: str) -> Optional[Tuple[datetime, datetime]]:
+    """
+    Returns (start_datetime, end_datetime) in UTC for the given user and period.
+    For period == 'all', start is the earliest event created_at (if any).
+    Returns None if there is no data at all for the user.
+    """
+    end = datetime.utcnow()
+    start = _period_bounds(period)
+    if period == "all":
+        with open_db() as conn:
+            row = conn.execute(
+                "SELECT MIN(created_at) AS min_dt FROM events WHERE telegram_user_id = ?",
+                (telegram_user_id,),
+            ).fetchone()
+            if not row or row[0] is None:
+                return None
+            # sqlite with detect_types should parse to datetime; if not, attempt parse
+            min_dt = row[0]
+            if isinstance(min_dt, str):
+                try:
+                    # Try ISO format
+                    min_dt = datetime.fromisoformat(min_dt)
+                except Exception:
+                    return None
+            start = min_dt
+        return (start, end)
+    # for bounded periods
+    if start is None:
+        return None
+    # Check if there is any data in this period
+    with open_db() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM events
+            WHERE telegram_user_id = ? AND created_at >= ?
+            ORDER BY created_at ASC LIMIT 1
+            """,
+            (telegram_user_id, start),
+        ).fetchone()
+        if row is None:
+            return None
+    return (start, end)
+
+
+def grant_access(owner_telegram_user_id: int, viewer_telegram_user_id: int) -> None:
+    if owner_telegram_user_id == viewer_telegram_user_id:
+        return
+    with open_db() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO shared_access (owner_telegram_user_id, viewer_telegram_user_id)
+            VALUES (?, ?)
+            """,
+            (owner_telegram_user_id, viewer_telegram_user_id),
+        )
+
+
+def revoke_access(owner_telegram_user_id: int, viewer_telegram_user_id: int) -> None:
+    with open_db() as conn:
+        conn.execute(
+            "DELETE FROM shared_access WHERE owner_telegram_user_id = ? AND viewer_telegram_user_id = ?",
+            (owner_telegram_user_id, viewer_telegram_user_id),
+        )
+
+
+def list_viewers(owner_telegram_user_id: int) -> Tuple[int, ...]:
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT viewer_telegram_user_id FROM shared_access WHERE owner_telegram_user_id = ? ORDER BY created_at ASC",
+            (owner_telegram_user_id,),
+        ).fetchall()
+    return tuple(int(r[0]) for r in rows)
+
+
+def list_available_owners(viewer_telegram_user_id: int) -> Tuple[int, ...]:
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT owner_telegram_user_id FROM shared_access WHERE viewer_telegram_user_id = ? ORDER BY created_at ASC",
+            (viewer_telegram_user_id,),
+        ).fetchall()
+    return tuple(int(r[0]) for r in rows)
 
 

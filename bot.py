@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BOT_TOKEN, PREFIX
-from db import init_db, get_reward, set_reward, aggregate_by_btag
+from db import init_db, get_reward, set_reward, aggregate_by_btag, get_period_range, grant_access, revoke_access, list_viewers, list_available_owners
 
 
 bot = Bot(BOT_TOKEN)
@@ -15,12 +15,16 @@ dp = Dispatcher()
 
 # Simple in-memory state to ask for reward input
 awaiting_reward_input: Dict[int, bool] = {}
+awaiting_grant_input: Dict[int, bool] = {}
+awaiting_revoke_input: Dict[int, bool] = {}
+awaiting_view_owner_input: Dict[int, bool] = {}
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Генерировать ссылки", callback_data="menu_generate")],
         [InlineKeyboardButton(text="💰 Установить вознаграждение", callback_data="menu_set_reward")],
+        [InlineKeyboardButton(text="👥 Доступ к статистике", callback_data="menu_share")],
         [
             InlineKeyboardButton(text="📊 Все время", callback_data="report_all"),
             InlineKeyboardButton(text="🗓️ Месяц", callback_data="report_month"),
@@ -47,12 +51,22 @@ def format_report(user_id: int, period: str) -> str:
     title = mapping.get(period, "Все время")
     stats = aggregate_by_btag(user_id, period)
     if not stats:
-        return f"📊 Отчет ({title})\n\nНет данных."
+        period_range = get_period_range(user_id, period)
+        range_text = ""
+        if period_range is not None:
+            start, end = period_range
+            range_text = f"\n<blockquote>Период: {start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M} UTC</blockquote>"
+        return f"📊 Отчет ({title}){range_text}\n\nНет данных."
 
     total_regs = total_deps = 0
     total_reward = 0.0
 
-    lines = [f"📊 Отчет ({title})", ""]
+    lines = [f"📊 Отчет ({title})"]
+    period_range = get_period_range(user_id, period)
+    if period_range is not None:
+        start, end = period_range
+        lines.append(f"<blockquote>Период: {start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M} UTC</blockquote>")
+    lines.append("")
 
     # По каждому BTag
     for btag, (regs, deps, reward_sum) in sorted(stats.items()):
@@ -109,6 +123,76 @@ async def on_menu_generate(callback: CallbackQuery):
     await callback.answer()
 
 
+# ====== Sharing access ======
+
+def share_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Выдать доступ", callback_data="share_grant")],
+        [InlineKeyboardButton(text="➖ Отозвать доступ", callback_data="share_revoke")],
+        [InlineKeyboardButton(text="📃 Кому выдан доступ", callback_data="share_list")],
+        [InlineKeyboardButton(text="👁 Просмотр чужой статистики", callback_data="share_view")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_back")],
+    ])
+
+
+@dp.callback_query(F.data == "menu_share")
+async def on_menu_share(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "Управление доступом к статистике.",
+        reply_markup=share_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_back")
+async def on_menu_back(callback: CallbackQuery):
+    await callback.message.edit_text("Главное меню.", reply_markup=main_menu_keyboard())
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "share_grant")
+async def on_share_grant(callback: CallbackQuery):
+    awaiting_grant_input[callback.from_user.id] = True
+    await callback.message.edit_text(
+        "Отправьте Telegram ID пользователя, которому хотите выдать доступ к вашей статистике.",
+        reply_markup=share_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "share_revoke")
+async def on_share_revoke(callback: CallbackQuery):
+    awaiting_revoke_input[callback.from_user.id] = True
+    await callback.message.edit_text(
+        "Отправьте Telegram ID пользователя, у которого нужно отозвать доступ.",
+        reply_markup=share_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "share_list")
+async def on_share_list(callback: CallbackQuery):
+    viewers = list_viewers(callback.from_user.id)
+    if not viewers:
+        text = "Доступ никому не выдан."
+    else:
+        text = "Кому выдан доступ:\n" + "\n".join(f"- {vid}" for vid in viewers)
+    await callback.message.edit_text(text, reply_markup=share_menu_keyboard())
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "share_view")
+async def on_share_view(callback: CallbackQuery):
+    awaiting_view_owner_input[callback.from_user.id] = True
+    owners = list_available_owners(callback.from_user.id)
+    owners_text = "\n".join(f"- {oid}" for oid in owners) if owners else "—"
+    await callback.message.edit_text(
+        f"Введите Telegram ID владельца, чью статистику вы хотите посмотреть.\nДоступен доступ к: \n{owners_text}",
+        reply_markup=share_menu_keyboard(),
+    )
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "menu_set_reward")
 async def on_set_reward(callback: CallbackQuery):
     awaiting_reward_input[callback.from_user.id] = True
@@ -131,6 +215,44 @@ async def on_any_message(message: Message):
         set_reward(message.from_user.id, value)
         awaiting_reward_input.pop(message.from_user.id, None)
         await message.reply(f"Готово. Новое вознаграждение: {value:.2f}", reply_markup=main_menu_keyboard())
+        return
+
+    if awaiting_grant_input.get(message.from_user.id):
+        awaiting_grant_input.pop(message.from_user.id, None)
+        try:
+            target_id = int(message.text.strip())
+        except Exception:
+            await message.reply("Нужно отправить числовой Telegram ID.", reply_markup=share_menu_keyboard())
+            return
+        grant_access(message.from_user.id, target_id)
+        await message.reply(f"Доступ выдан пользователю {target_id}.", reply_markup=share_menu_keyboard())
+        return
+
+    if awaiting_revoke_input.get(message.from_user.id):
+        awaiting_revoke_input.pop(message.from_user.id, None)
+        try:
+            target_id = int(message.text.strip())
+        except Exception:
+            await message.reply("Нужно отправить числовой Telegram ID.", reply_markup=share_menu_keyboard())
+            return
+        revoke_access(message.from_user.id, target_id)
+        await message.reply(f"Доступ отозван у пользователя {target_id}.", reply_markup=share_menu_keyboard())
+        return
+
+    if awaiting_view_owner_input.get(message.from_user.id):
+        awaiting_view_owner_input.pop(message.from_user.id, None)
+        try:
+            owner_id = int(message.text.strip())
+        except Exception:
+            await message.reply("Нужно отправить числовой Telegram ID владельца.", reply_markup=share_menu_keyboard())
+            return
+        available = set(list_available_owners(message.from_user.id))
+        if owner_id not in available:
+            await message.reply("У вас нет доступа к статистике этого пользователя.", reply_markup=share_menu_keyboard())
+            return
+        report_text = format_report(owner_id, "all")
+        await message.reply(report_text, parse_mode="HTML", reply_markup=share_menu_keyboard())
+        return
 
 
 @dp.callback_query(F.data.in_({"report_all", "report_month", "report_week", "report_day", "menu_refresh"}))
