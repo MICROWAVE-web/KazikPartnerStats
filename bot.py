@@ -48,16 +48,41 @@ def format_report(user_id: int, period: str) -> str:
     stats = aggregate_by_btag(user_id, period)
     if not stats:
         return f"📊 Отчет ({title})\n\nНет данных."
-    lines = [f"📊 Отчет ({title})", "", "btag | Реги | Первых депов | Сумма вознаграждений"]
+
     total_regs = total_deps = 0
     total_reward = 0.0
+
+    lines = [f"📊 Отчет ({title})", ""]
+
+    # По каждому BTag
     for btag, (regs, deps, reward_sum) in sorted(stats.items()):
-        lines.append(f"{btag or '-'} | {regs} | {deps} | {reward_sum:.2f}")
+        lines.append(
+            "\n".join([
+                f"<blockquote>BTag: {btag or '-'}",
+                f"Реги: {regs}",
+                f"Депы: {deps}",
+                f"Сумма: {round(reward_sum, 2)}</blockquote>",
+            ])
+        )
+        lines.append("")  # пустая строка между блоками
+
         total_regs += regs
         total_deps += deps
         total_reward += reward_sum
-    lines += ["", f"Итого: регистрации {total_regs}, первые депозиты {total_deps}, вознаграждение {total_reward:.2f}"]
+
+    # Итоговый блок
+    lines.append("💠 Итоги")
+    lines.append(
+        "\n".join([
+            f"Регистрации: {total_regs}",
+            f"Первые депозиты: {total_deps}",
+            f"Вознаграждение: {round(total_reward, 2)}",
+        ])
+    )
+
     return "\n".join(lines)
+
+
 
 
 @dp.message(Command("start"))
@@ -120,7 +145,7 @@ async def on_reports(callback: CallbackQuery):
     }
     period = period_map.get(data, "all")
     text = format_report(callback.from_user.id, period)
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard())
+    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 
