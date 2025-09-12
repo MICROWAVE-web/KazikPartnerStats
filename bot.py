@@ -47,7 +47,7 @@ def make_links_text(user_id: int) -> str:
 
 
 def format_report(user_id: int, period: str) -> str:
-    mapping = {"all": "Все время", "month": "Месяц", "week": "Неделя", "day": "День"}
+    mapping = {"all": "Все время", "hour": "Час", "month": "Месяц", "week": "Неделя", "day": "День"}
     title = mapping.get(period, "Все время")
     stats = aggregate_by_btag(user_id, period)
     if not stats:
@@ -59,7 +59,7 @@ def format_report(user_id: int, period: str) -> str:
         # Even if no data for this period, still show the fixed summaries
         totals_lines = _fixed_period_totals_lines(user_id)
         return "\n".join([
-            f"📊 Отчет ({title}){range_text}",
+            f"📊 Отчет ({title})",
             "",
             "💠 Итоги",
             *totals_lines,
@@ -86,7 +86,7 @@ def format_report(user_id: int, period: str) -> str:
     period_range = get_period_range(user_id, period)
     if period_range is not None:
         start, end = period_range
-        lines.append(f"<blockquote>Период: {start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M} UTC</blockquote>")
+        # lines.append(f"<blockquote>Период: {start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M} UTC</blockquote>")
     lines.append("")
 
     # По каждому BTag
@@ -339,8 +339,8 @@ async def _hourly_broadcast_task():
             user_ids = list_all_user_ids()
             for uid in user_ids:
                 try:
-                    text = _build_compact_totals_text(uid)
-                    await bot.send_message(uid, text)
+                    text = format_report(uid, "hour")
+                    await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
                     # ignore send errors per user
                     pass
