@@ -113,6 +113,8 @@ def insert_event(
 
 def _period_bounds(period: str) -> Optional[datetime]:
     now = datetime.utcnow()
+    if period == "hour":
+        return now - timedelta(hours=1)
     if period == "day":
         return now - timedelta(days=1)
     if period == "week":
@@ -125,7 +127,7 @@ def _period_bounds(period: str) -> Optional[datetime]:
 def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int, int, float]]:
     """
     Returns mapping: btag -> (registrations_count, first_deposits_count, total_reward_sum)
-    period in {"all","day","week","month"}
+    period in {"all","hour","day","week","month"}
     """
     since = _period_bounds(period)
     params = [telegram_user_id]

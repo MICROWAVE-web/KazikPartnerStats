@@ -56,7 +56,16 @@ def format_report(user_id: int, period: str) -> str:
         if period_range is not None:
             start, end = period_range
             range_text = f"\n<blockquote>Период: {start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M} UTC</blockquote>"
-        return f"📊 Отчет ({title}){range_text}\n\nНет данных."
+        # Even if no data for this period, still show the fixed summaries
+        totals_lines = _fixed_period_totals_lines(user_id)
+        return "\n".join([
+            f"📊 Отчет ({title}){range_text}",
+            "",
+            "💠 Итоги",
+            *totals_lines,
+            "",
+            "Нет данных.",
+        ])
 
     total_regs = total_deps = 0
     total_reward = 0.0
@@ -86,15 +95,38 @@ def format_report(user_id: int, period: str) -> str:
 
     # Итоговый блок
     lines.append("💠 Итоги")
-    lines.append(
-        "\n".join([
-            f"Регистрации: {total_regs}",
-            f"Первые депозиты: {total_deps}",
-            f"Вознаграждение: {round(total_reward, 2)}",
-        ])
-    )
+    #lines.append(
+    #    "\n".join([
+    #        f"Регистрации: {total_regs}",
+    #        f"Первые депозиты: {total_deps}",
+    #        f"Вознаграждение: {round(total_reward, 2)}",
+    #    ])
+    #)
+    # Always show Hour/Day/Week/Month totals
+    lines.extend(_fixed_period_totals_lines(user_id))
 
     return "\n".join(lines)
+
+
+def _fixed_period_totals_lines(user_id: int) -> list[str]:
+    def summarize(period_key: str) -> tuple[int, int, float]:
+        period_stats = aggregate_by_btag(user_id, period_key)
+        regs = sum(v[0] for v in period_stats.values())
+        deps = sum(v[1] for v in period_stats.values())
+        reward = round(sum(v[2] for v in period_stats.values()), 2)
+        return regs, deps, reward
+
+    hour_regs, hour_deps, hour_reward = summarize("hour")
+    day_regs, day_deps, day_reward = summarize("day")
+    week_regs, week_deps, week_reward = summarize("week")
+    month_regs, month_deps, month_reward = summarize("month")
+
+    return [
+        f"Час: {hour_regs} рег | {hour_deps}fd | {hour_reward}",
+        f"День: {day_regs} рег | {day_deps}fd | {day_reward}",
+        f"Неделя: {week_regs} рег | {week_deps}fd | {week_reward}",
+        f"Месяц: {month_regs} рег | {month_deps}fd | {month_reward}",
+    ]
 
 
 
