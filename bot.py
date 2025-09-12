@@ -71,7 +71,7 @@ def format_report(user_id: int, period: str) -> str:
     total_reward = 0.0
     lines = []
     # Итоговый блок
-    lines.append("💠 Итоги")
+    lines.append("🤑 ==== ROYAL ==== 🤑")
     # lines.append(
     #    "\n".join([
     #        f"Регистрации: {total_regs}",
@@ -106,7 +106,7 @@ def format_report(user_id: int, period: str) -> str:
         total_reward += reward_sum
 
     # Итоговый блок
-    lines.append("💠 Итоги")
+    lines.append("🤑 ==== ROYAL ==== 🤑")
     #lines.append(
     #    "\n".join([
     #        f"Регистрации: {total_regs}",
@@ -134,10 +134,10 @@ def _fixed_period_totals_lines(user_id: int) -> list[str]:
     month_regs, month_deps, month_reward = summarize("month")
 
     return [
-        f"Час: {hour_regs} рег | {hour_deps}fd | {hour_reward}",
-        f"День: {day_regs} рег | {day_deps}fd | {day_reward}",
-        f"Неделя: {week_regs} рег | {week_deps}fd | {week_reward}",
-        f"Месяц: {month_regs} рег | {month_deps}fd | {month_reward}",
+        f"Час: {hour_regs} рег | 💰{hour_deps}fd | {hour_reward}",
+        f"День: {day_regs} рег | 💰{day_deps}fd | {day_reward}",
+        f"Неделя: {week_regs} рег | 💰{week_deps}fd | {week_reward}",
+        f"Месяц: {month_regs} рег | 💰{month_deps}fd | {month_reward}",
     ]
 
 
