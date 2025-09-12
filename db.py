@@ -292,3 +292,11 @@ def list_available_owners(viewer_telegram_user_id: int) -> Tuple[int, ...]:
     return tuple(int(r[0]) for r in rows)
 
 
+def list_all_user_ids() -> Tuple[int, ...]:
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT telegram_user_id FROM users ORDER BY created_at ASC"
+        ).fetchall()
+    return tuple(int(r[0]) for r in rows)
+
+

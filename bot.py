@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BOT_TOKEN, PREFIX
-from db import init_db, get_reward, set_reward, aggregate_by_btag, get_period_range, grant_access, revoke_access, list_viewers, list_available_owners
+from db import init_db, get_reward, set_reward, aggregate_by_btag, get_period_range, grant_access, revoke_access, list_viewers, list_available_owners, list_all_user_ids
 
 
 bot = Bot(BOT_TOKEN)
@@ -69,8 +69,20 @@ def format_report(user_id: int, period: str) -> str:
 
     total_regs = total_deps = 0
     total_reward = 0.0
-
-    lines = [f"📊 Отчет ({title})"]
+    lines = []
+    # Итоговый блок
+    lines.append("💠 Итоги")
+    # lines.append(
+    #    "\n".join([
+    #        f"Регистрации: {total_regs}",
+    #        f"Первые депозиты: {total_deps}",
+    #        f"Вознаграждение: {round(total_reward, 2)}",
+    #    ])
+    # )
+    # Always show Hour/Day/Week/Month totals
+    lines.extend(_fixed_period_totals_lines(user_id))
+    lines.append("")
+    lines.append(f"📊 Отчет ({title})")
     period_range = get_period_range(user_id, period)
     if period_range is not None:
         start, end = period_range
@@ -307,6 +319,35 @@ async def run_bot():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN not set in environment")
     init_db()
+    # Start hourly broadcast task
+    asyncio.create_task(_hourly_broadcast_task())
     await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+
+
+def _build_compact_totals_text(user_id: int) -> str:
+    lines = ["💠 Итоги"]
+    # reuse fixed period totals lines (hour/day/week/month)
+    lines.extend(_fixed_period_totals_lines(user_id))
+    return "\n".join(lines)
+
+
+async def _hourly_broadcast_task():
+    # initial small delay to avoid race on startup
+    await asyncio.sleep(5)
+    while True:
+        try:
+            user_ids = list_all_user_ids()
+            for uid in user_ids:
+                try:
+                    text = _build_compact_totals_text(uid)
+                    await bot.send_message(uid, text)
+                except Exception:
+                    # ignore send errors per user
+                    pass
+        except Exception:
+            # ignore global errors, keep loop alive
+            pass
+        # sleep until next hour
+        await asyncio.sleep(60 * 60)
 
 
