@@ -345,6 +345,7 @@ async def _hourly_broadcast_task():
                 uid = 1051111502
                 try:
                     text = format_report(uid, "hour")
+                    print(text)
                     await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
                     logging.error("Error")
