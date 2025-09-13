@@ -342,9 +342,8 @@ async def _hourly_broadcast_task():
             for uid in user_ids:
                 print(uid)
                 #if uid == 1854386613:
-                uid = 1051111502
                 try:
-                    text = format_report(uid, "hour")
+                    text = format_report(1051111502, "hour")
                     print(text)
                     await bot.send_message(uid, text, parse_mode="HTML")
                     print()
