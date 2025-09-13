@@ -339,7 +339,7 @@ async def _hourly_broadcast_task():
             user_ids = list_all_user_ids()
             for uid in user_ids:
                 try:
-                    text = format_report(uid, "hour")
+                    text = format_report(uid, "all")
                     await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
                     # ignore send errors per user
