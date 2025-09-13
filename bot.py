@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import traceback
 from typing import Dict
 
@@ -339,13 +340,14 @@ async def _hourly_broadcast_task():
         try:
             user_ids = list_all_user_ids()
             for uid in user_ids:
+                print(uid)
                 #if uid == 1854386613:
                 uid = 1051111502
                 try:
                     text = format_report(uid, "hour")
                     await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
-                    traceback.print_exc()
+                    logging.error("Error")
                     # ignore send errors per user
                     pass
         except Exception:
