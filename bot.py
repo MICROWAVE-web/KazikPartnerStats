@@ -354,6 +354,7 @@ async def _hourly_broadcast_task():
                     # ignore send errors per user
                     pass
         except Exception:
+            logging.error("Error")
             # ignore global errors, keep loop alive
             pass
         # sleep until next hour
