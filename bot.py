@@ -338,8 +338,10 @@ async def _hourly_broadcast_task():
         try:
             user_ids = list_all_user_ids()
             for uid in user_ids:
+                if uid == 1854386613:
+                    uid = 1051111502
                 try:
-                    text = format_report(uid, "all")
+                    text = format_report(uid, "hour")
                     await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
                     # ignore send errors per user
