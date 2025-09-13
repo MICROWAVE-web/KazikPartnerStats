@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 from typing import Dict
 
 from aiogram import Bot, Dispatcher, F
@@ -344,6 +345,7 @@ async def _hourly_broadcast_task():
                     text = format_report(uid, "hour")
                     await bot.send_message(uid, text, parse_mode="HTML")
                 except Exception:
+                    traceback.print_exc()
                     # ignore send errors per user
                     pass
         except Exception:
