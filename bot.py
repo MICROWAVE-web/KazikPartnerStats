@@ -1,17 +1,13 @@
-import asyncio
 from typing import Dict
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS
 from db import init_db, get_reward, set_reward, aggregate_by_btag
 
-
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
-
 
 # Simple in-memory state to ask for reward input
 awaiting_reward_input: Dict[int, bool] = {}
@@ -54,11 +50,28 @@ def format_report(user_id: int, period: str) -> str:
     lines = [f"📊 Отчет ({title})", "", "btag | Реги | Кол-во депов"]
     total_regs = total_deps = 0
     for btag, (regs, deps, reward_sum) in sorted(stats.items()):
-        lines.append(f"{btag or '-'} | {regs} | {deps}")
+        lines.append(
+            "\n".join([
+                f"<blockquote>BTag: {btag or '-'}",
+                f"Реги: {regs}",
+                f"Депы: {deps}",
+                f"Сумма: {round(reward_sum, 2)}</blockquote>",
+            ])
+        )
+        lines.append("")  # пустая строка между блоками
+        # lines.append(f"{btag or '-'} | {regs} | {deps}")
         total_regs += regs
         total_deps += deps
     lines += ["", f"Итого: регистрации {total_regs}, депозиты {total_deps}"]
-    return "\n".join(lines)
+
+    return "\n".join([
+        f"📊 Отчет ({title})",
+        "",
+        "🤑 ==== ROYAL ==== 🤑",
+        *lines,
+        "",
+        "Нет данных.",
+    ])
 
 
 def check_access(user_id: int) -> bool:
@@ -98,7 +111,8 @@ async def on_menu_generate(callback: CallbackQuery):
     if not check_access(callback.from_user.id):
         await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
         return
-    await callback.message.edit_text(make_links_text(callback.from_user.id), reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await callback.message.edit_text(make_links_text(callback.from_user.id), reply_markup=main_menu_keyboard(),
+                                     parse_mode="HTML")
     await callback.answer()
 
 
@@ -132,7 +146,8 @@ async def on_any_message(message: Message):
         await message.reply(f"Готово. Новое вознаграждение: {value:.2f}", reply_markup=main_menu_keyboard())
 
 
-@dp.callback_query(F.data.in_({"report_all", "report_hour", "report_day", "report_week", "report_last_week", "menu_refresh"}))
+@dp.callback_query(
+    F.data.in_({"report_all", "report_hour", "report_day", "report_week", "report_last_week", "menu_refresh"}))
 async def on_reports(callback: CallbackQuery):
     if not check_access(callback.from_user.id):
         await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
@@ -157,6 +172,3 @@ async def run_bot():
         raise RuntimeError("BOT_TOKEN not set in environment")
     init_db()
     await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
-
-
-
