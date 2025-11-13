@@ -164,7 +164,7 @@ async def on_reports(callback: CallbackQuery):
     }
     period = period_map.get(data, "all")
     text = format_report(callback.from_user.id, period)
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard())
+    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 
