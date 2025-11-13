@@ -1,3 +1,4 @@
+import traceback
 from typing import Dict
 
 from aiogram import Bot, Dispatcher, F
@@ -48,7 +49,7 @@ def format_report(user_id: int, period: str) -> str:
     stats = aggregate_by_btag(user_id, period)
     if not stats:
         return f"📊 Отчет ({title})\n\nНет данных."
-    lines = [f"📊 Отчет ({title})", "", "btag | Реги | Кол-во депов"]
+    lines = [f"📊 Отчет ({title})", ""]
     total_regs = total_deps = 0
     for btag, (regs, deps, reward_sum) in sorted(stats.items()):
         lines.append(
@@ -112,8 +113,14 @@ async def on_menu_generate(callback: CallbackQuery):
     if not check_access(callback.from_user.id):
         await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
         return
-    await callback.message.edit_text(make_links_text(callback.from_user.id), reply_markup=main_menu_keyboard(),
-                                     parse_mode="HTML")
+    try:
+        await callback.message.edit_text(make_links_text(callback.from_user.id), reply_markup=main_menu_keyboard(),
+                                         parse_mode="HTML")
+    except Exception as e:
+        if 'exactly the same' in str(e):
+            await callback.answer()
+        else:
+            traceback.print_exc()
     await callback.answer()
 
 
@@ -123,10 +130,17 @@ async def on_set_reward(callback: CallbackQuery):
         await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
         return
     awaiting_reward_input[callback.from_user.id] = True
-    await callback.message.edit_text(
-        "Введите новое значение вознаграждения (число, например 10 или 12.5)",
-        reply_markup=main_menu_keyboard(),
-    )
+    try:
+        await callback.message.edit_text(
+            "Введите новое значение вознаграждения (число, например 10 или 12.5)",
+            reply_markup=main_menu_keyboard(),
+        )
+    except Exception as e:
+        if 'exactly the same' in str(e):
+            await callback.answer()
+        else:
+            traceback.print_exc()
+
     await callback.answer()
 
 
@@ -164,7 +178,14 @@ async def on_reports(callback: CallbackQuery):
     }
     period = period_map.get(data, "all")
     text = format_report(callback.from_user.id, period)
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    try:
+        await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    except Exception as e:
+        if 'exactly the same' in str(e):
+            await callback.answer()
+        else:
+            traceback.print_exc()
+
     await callback.answer()
 
 
