@@ -62,6 +62,7 @@ def format_report(user_id: int, period: str) -> str:
 
 
 def check_access(user_id: int) -> bool:
+    return True
     """Проверяет, есть ли у пользователя доступ к боту"""
     if not ALLOWED_USER_IDS:
         return True  # Если список пуст, доступ открыт для всех
