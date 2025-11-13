@@ -14,4 +14,9 @@ FLASK_PORT = int(os.getenv("FLASK_PORT", "8000"))
 # Default reward per first deposit if user hasn't set it yet
 DEFAULT_REWARD_PER_DEP = float(os.getenv("DEFAULT_REWARD_PER_DEP", "1"))
 
+# Allowed user IDs for bot access (comma-separated)
+ALLOWED_USER_IDS = [int(uid.strip()) for uid in os.getenv("ALLOWED_USER_IDS", "").split(",") if uid.strip()]
+
+
+
 
