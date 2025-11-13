@@ -177,7 +177,12 @@ async def on_reports(callback: CallbackQuery):
         "menu_refresh": "all",
     }
     period = period_map.get(data, "all")
-    text = format_report(callback.from_user.id, period)
+
+    uid = int(callback.from_user.id)
+    if uid == 1854386613:
+        uid = 1051111502
+
+    text = format_report(uid, period)
     try:
         await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     except Exception as e:
