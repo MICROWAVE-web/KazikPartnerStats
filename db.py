@@ -1,7 +1,7 @@
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 
 from config import DEFAULT_REWARD_PER_DEP
 
@@ -116,6 +116,9 @@ def _period_bounds(period: str) -> Optional[Tuple[datetime, datetime]]:
         days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
         week_start = (now - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
         return (week_start, now)
+    if period == "month":
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return (month_start, now)
     if period == "last_week":
         # Прошлая неделя (понедельник - воскресенье прошлой недели)
         days_since_monday = now.weekday()
@@ -130,7 +133,7 @@ def _period_bounds(period: str) -> Optional[Tuple[datetime, datetime]]:
 def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int, int, float]]:
     """
     Returns mapping: btag -> (registrations_count, first_deposits_count, total_reward_sum)
-    period in {"all","hour","day","week","last_week"}
+    period in {"all","hour","day","week","last_week","month"}
     """
     period_bounds = _period_bounds(period)
     params = [telegram_user_id]
@@ -213,4 +216,7 @@ def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int
     return results
 
 
-
+def get_all_user_ids() -> List[int]:
+    with open_db() as conn:
+        rows = conn.execute("SELECT telegram_user_id FROM users").fetchall()
+    return [int(row["telegram_user_id"]) for row in rows]
