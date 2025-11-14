@@ -3,9 +3,9 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Dict, Tuple
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 
 from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS
 from db import init_db, get_reward, set_reward, aggregate_by_btag, get_all_user_ids
@@ -17,23 +17,26 @@ dp = Dispatcher()
 awaiting_reward_input: Dict[int, bool] = {}
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Генерировать ссылки", callback_data="menu_generate")],
-        [InlineKeyboardButton(text="💰 Установить вознаграждение", callback_data="menu_set_reward")],
-        [
-            InlineKeyboardButton(text="📊 Все время", callback_data="report_all"),
-            InlineKeyboardButton(text="⏰ Час", callback_data="report_hour"),
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔗 Генерировать ссылки")],
+            [KeyboardButton(text="💰 Установить вознаграждение")],
+            [
+                KeyboardButton(text="📊 Все время"),
+                KeyboardButton(text="⏰ Час"),
+            ],
+            [
+                KeyboardButton(text="📆 День"),
+                KeyboardButton(text="📅 Неделя"),
+            ],
+            [
+                KeyboardButton(text="🗓️ Прошлая неделя"),
+            ],
+            [KeyboardButton(text="↻ Обновить")],
         ],
-        [
-            InlineKeyboardButton(text="📆 День", callback_data="report_day"),
-            InlineKeyboardButton(text="📅 Неделя", callback_data="report_week"),
-        ],
-        [
-            InlineKeyboardButton(text="🗓️ Прошлая неделя", callback_data="report_last_week"),
-        ],
-        [InlineKeyboardButton(text="↻ Обновить", callback_data="menu_refresh")],
-    ])
+        resize_keyboard=True
+    )
 
 
 def make_links_text(user_id: int) -> str:
@@ -175,43 +178,11 @@ async def cmd_generate(message: Message):
         await message.answer("❌ У вас нет доступа к этому боту.")
         return
     text = make_links_text(message.from_user.id)
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
 
-@dp.callback_query(F.data == "menu_generate")
-async def on_menu_generate(callback: CallbackQuery):
-    if not check_access(callback.from_user.id):
-        await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
-        return
-    try:
-        await callback.message.edit_text(make_links_text(callback.from_user.id), reply_markup=main_menu_keyboard(),
-                                         parse_mode="HTML")
-    except Exception as e:
-        if 'exactly the same' in str(e):
-            await callback.answer()
-        else:
-            traceback.print_exc()
-    await callback.answer()
 
 
-@dp.callback_query(F.data == "menu_set_reward")
-async def on_set_reward(callback: CallbackQuery):
-    if not check_access(callback.from_user.id):
-        await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
-        return
-    awaiting_reward_input[callback.from_user.id] = True
-    try:
-        await callback.message.edit_text(
-            "Введите новое значение вознаграждения (число, например 10 или 12.5)",
-            reply_markup=main_menu_keyboard(),
-        )
-    except Exception as e:
-        if 'exactly the same' in str(e):
-            await callback.answer()
-        else:
-            traceback.print_exc()
-
-    await callback.answer()
 
 
 @dp.message()
@@ -219,6 +190,8 @@ async def on_any_message(message: Message):
     if not check_access(message.from_user.id):
         await message.answer("❌ У вас нет доступа к этому боту.")
         return
+    
+    # Обработка ввода вознаграждения
     if awaiting_reward_input.get(message.from_user.id):
         text = message.text.strip().replace(",", ".")
         try:
@@ -229,39 +202,48 @@ async def on_any_message(message: Message):
         set_reward(message.from_user.id, value)
         awaiting_reward_input.pop(message.from_user.id, None)
         await message.reply(f"Готово. Новое вознаграждение: {value:.2f}", reply_markup=main_menu_keyboard())
-
-
-@dp.callback_query(
-    F.data.in_({"report_all", "report_hour", "report_day", "report_week", "report_last_week", "menu_refresh"}))
-async def on_reports(callback: CallbackQuery):
-    if not check_access(callback.from_user.id):
-        await callback.answer("❌ У вас нет доступа к этому боту.", show_alert=True)
         return
-    data = callback.data
+    
+    # Обработка нажатий кнопок клавиатуры
+    if not message.text:
+        return
+    
+    text = message.text.strip()
+    
+    # Генерировать ссылки
+    if text == "🔗 Генерировать ссылки":
+        await message.answer(make_links_text(message.from_user.id), parse_mode="HTML", reply_markup=main_menu_keyboard())
+        return
+    
+    # Установить вознаграждение
+    if text == "💰 Установить вознаграждение":
+        awaiting_reward_input[message.from_user.id] = True
+        await message.answer(
+            "Введите новое значение вознаграждения (число, например 10 или 12.5)",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    
+    # Отчеты
     period_map = {
-        "report_all": "all",
-        "report_hour": "hour",
-        "report_day": "day",
-        "report_week": "week",
-        "report_last_week": "last_week",
-        "menu_refresh": "all",
+        "📊 Все время": "all",
+        "⏰ Час": "hour",
+        "📆 День": "day",
+        "📅 Неделя": "week",
+        "🗓️ Прошлая неделя": "last_week",
+        "↻ Обновить": "all",
     }
-    period = period_map.get(data, "all")
+    
+    if text in period_map:
+        period = period_map[text]
+        uid = int(message.from_user.id)
+        if uid == 1854386613:
+            uid = 1051111502
+        report_text = format_report(uid, period)
+        await message.answer(report_text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+        return
 
-    uid = int(callback.from_user.id)
-    if uid == 1854386613:
-        uid = 1051111502
 
-    text = format_report(uid, period)
-    try:
-        await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
-    except Exception as e:
-        if 'exactly the same' in str(e):
-            await callback.answer()
-        else:
-            traceback.print_exc()
-
-    await callback.answer()
 
 
 async def send_hourly_reports():
@@ -289,4 +271,4 @@ async def run_bot():
         raise RuntimeError("BOT_TOKEN not set in environment")
     init_db()
     await asyncio.create_task(hourly_report_scheduler())
-    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+    await dp.start_polling(bot, allowed_updates=["message"])
