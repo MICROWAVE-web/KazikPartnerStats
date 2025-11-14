@@ -121,18 +121,18 @@ def format_hourly_report(user_id: int) -> str:
     hour_stats = aggregate_by_btag(user_id, "hour")
     day_stats = aggregate_by_btag(user_id, "day")
     week_stats = aggregate_by_btag(user_id, "week")
-    month_stats = aggregate_by_btag(user_id, "month")
+    last_week_stats = aggregate_by_btag(user_id, "last_week")
 
     hour_summary = _summarize(hour_stats)
     day_summary = _summarize(day_stats)
     week_summary = _summarize(week_stats)
-    month_summary = _summarize(month_stats)
+    last_week_summary = _summarize(last_week_stats)
 
     summary_lines = [
         _format_summary_line("Час", hour_summary),
         _format_summary_line("День", day_summary),
         _format_summary_line("Неделя", week_summary),
-        _format_summary_line("Месяц", month_summary),
+        _format_summary_line("Прошлая неделя", last_week_summary),
     ]
 
     sources_lines = ["Все источники за текущий день:"]
