@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import traceback
 from datetime import datetime, timedelta
 from typing import Dict, Tuple
@@ -6,9 +7,22 @@ from typing import Dict, Tuple
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
+from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS
 from db import init_db, get_reward, set_reward, aggregate_by_btag, get_all_user_ids
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# Включаем логирование для aiogram
+logging.getLogger('aiogram').setLevel(logging.INFO)
+logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
@@ -159,26 +173,40 @@ def check_access(user_id: int) -> bool:
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
+    logger.info(f"Получена команда /start от пользователя {message.from_user.id} (@{message.from_user.username})")
     if not check_access(message.from_user.id):
+        logger.warning(f"Попытка доступа от неразрешенного пользователя {message.from_user.id}")
         await message.answer("❌ У вас нет доступа к этому боту.")
         return
-    init_db()
-    current = get_reward(message.from_user.id)
-    text = (
-        "👋 Добро пожаловать! Это партнерский бот.\n\n"
-        f"Текущее вознаграждение за первый депозит: {current:.2f}\n\n"
-        "Используйте меню ниже."
-    )
-    await message.answer(text, reply_markup=main_menu_keyboard())
+    try:
+        init_db()
+        current = get_reward(message.from_user.id)
+        text = (
+            "👋 Добро пожаловать! Это партнерский бот.\n\n"
+            f"Текущее вознаграждение за первый депозит: {current:.2f}\n\n"
+            "Используйте меню ниже."
+        )
+        await message.answer(text, reply_markup=main_menu_keyboard())
+        logger.info(f"Команда /start успешно обработана для пользователя {message.from_user.id}")
+    except Exception as e:
+        logger.error(f"Ошибка при обработке /start: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при обработке команды.")
 
 
 @dp.message(Command("generate"))
 async def cmd_generate(message: Message):
+    logger.info(f"Получена команда /generate от пользователя {message.from_user.id}")
     if not check_access(message.from_user.id):
+        logger.warning(f"Попытка доступа от неразрешенного пользователя {message.from_user.id}")
         await message.answer("❌ У вас нет доступа к этому боту.")
         return
-    text = make_links_text(message.from_user.id)
-    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+    try:
+        text = make_links_text(message.from_user.id)
+        await message.answer(text, reply_markup=main_menu_keyboard())
+        logger.info(f"Команда /generate успешно обработана для пользователя {message.from_user.id}")
+    except Exception as e:
+        logger.error(f"Ошибка при обработке /generate: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при генерации ссылок.")
 
 
 
@@ -187,88 +215,153 @@ async def cmd_generate(message: Message):
 
 @dp.message()
 async def on_any_message(message: Message):
+    logger.info(f"Получено сообщение от пользователя {message.from_user.id}: {message.text}")
+    
     if not check_access(message.from_user.id):
+        logger.warning(f"Попытка доступа от неразрешенного пользователя {message.from_user.id}")
         await message.answer("❌ У вас нет доступа к этому боту.")
         return
     
-    # Обработка ввода вознаграждения
-    if awaiting_reward_input.get(message.from_user.id):
-        text = message.text.strip().replace(",", ".")
-        try:
-            value = float(text)
-        except Exception:
-            await message.reply("Пожалуйста, введите корректное число.")
+    try:
+        # Обработка ввода вознаграждения
+        if awaiting_reward_input.get(message.from_user.id):
+            if not message.text:
+                await message.reply("Пожалуйста, введите число.")
+                return
+            text = message.text.strip().replace(",", ".")
+            try:
+                value = float(text)
+                logger.info(f"Установка вознаграждения для пользователя {message.from_user.id}: {value}")
+                set_reward(message.from_user.id, value)
+                awaiting_reward_input.pop(message.from_user.id, None)
+                await message.reply(f"Готово. Новое вознаграждение: {value:.2f}", reply_markup=main_menu_keyboard())
+                return
+            except ValueError:
+                logger.warning(f"Неверный формат числа от пользователя {message.from_user.id}: {text}")
+                await message.reply("Пожалуйста, введите корректное число.")
+                return
+        
+        # Обработка нажатий кнопок клавиатуры
+        if not message.text:
+            logger.debug(f"Сообщение без текста от пользователя {message.from_user.id}")
             return
-        set_reward(message.from_user.id, value)
-        awaiting_reward_input.pop(message.from_user.id, None)
-        await message.reply(f"Готово. Новое вознаграждение: {value:.2f}", reply_markup=main_menu_keyboard())
-        return
-    
-    # Обработка нажатий кнопок клавиатуры
-    if not message.text:
-        return
-    
-    text = message.text.strip()
-    
-    # Генерировать ссылки
-    if text == "🔗 Генерировать ссылки":
-        await message.answer(make_links_text(message.from_user.id), parse_mode="HTML", reply_markup=main_menu_keyboard())
-        return
-    
-    # Установить вознаграждение
-    if text == "💰 Установить вознаграждение":
-        awaiting_reward_input[message.from_user.id] = True
-        await message.answer(
-            "Введите новое значение вознаграждения (число, например 10 или 12.5)",
-            reply_markup=main_menu_keyboard(),
-        )
-        return
-    
-    # Отчеты
-    period_map = {
-        "📊 Все время": "all",
-        "⏰ Час": "hour",
-        "📆 День": "day",
-        "📅 Неделя": "week",
-        "🗓️ Прошлая неделя": "last_week",
-        "↻ Обновить": "all",
-    }
-    
-    if text in period_map:
-        period = period_map[text]
-        uid = int(message.from_user.id)
-        if uid == 1854386613:
-            uid = 1051111502
-        report_text = format_report(uid, period)
-        await message.answer(report_text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
-        return
+        
+        text = message.text.strip()
+        logger.info(f"Обработка текста от пользователя {message.from_user.id}: {text}")
+        
+        # Генерировать ссылки
+        if text == "🔗 Генерировать ссылки":
+            logger.info(f"Генерация ссылок для пользователя {message.from_user.id}")
+            await message.answer(make_links_text(message.from_user.id), reply_markup=main_menu_keyboard())
+            return
+        
+        # Установить вознаграждение
+        if text == "💰 Установить вознаграждение":
+            logger.info(f"Запрос на установку вознаграждения от пользователя {message.from_user.id}")
+            awaiting_reward_input[message.from_user.id] = True
+            await message.answer(
+                "Введите новое значение вознаграждения (число, например 10 или 12.5)",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        
+        # Отчеты
+        period_map = {
+            "📊 Все время": "all",
+            "⏰ Час": "hour",
+            "📆 День": "day",
+            "📅 Неделя": "week",
+            "🗓️ Прошлая неделя": "last_week",
+            "↻ Обновить": "all",
+        }
+        
+        if text in period_map:
+            period = period_map[text]
+            logger.info(f"Запрос отчета '{period}' от пользователя {message.from_user.id}")
+            uid = int(message.from_user.id)
+            if uid == 1854386613:
+                uid = 1051111502
+            report_text = format_report(uid, period)
+            await message.answer(report_text, reply_markup=main_menu_keyboard())
+            return
+        
+        # Если текст не распознан, просто логируем
+        logger.debug(f"Необработанное сообщение от пользователя {message.from_user.id}: {text}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке сообщения от пользователя {message.from_user.id}: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при обработке сообщения.")
 
 
 
 
 async def send_hourly_reports():
+    logger.info("Отправка часовых отчетов")
     user_ids = get_all_user_ids()
     if not user_ids:
+        logger.info("Нет пользователей для отправки отчетов")
         return
+    logger.info(f"Отправка отчетов {len(user_ids)} пользователям")
     for user_id in user_ids:
         try:
             report_text = format_hourly_report(user_id)
             await bot.send_message(user_id, report_text)
-        except Exception:
-            traceback.print_exc()
+            logger.info(f"Отчет отправлен пользователю {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке отчета пользователю {user_id}: {e}", exc_info=True)
 
 
 async def hourly_report_scheduler():
+    logger.info("Запущен планировщик часовых отчетов")
     while True:
-        now = datetime.utcnow()
-        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        await asyncio.sleep((next_hour - now).total_seconds())
-        await send_hourly_reports()
+        try:
+            now = datetime.utcnow()
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            sleep_seconds = (next_hour - now).total_seconds()
+            logger.info(f"Ожидание до следующего часа: {sleep_seconds} секунд")
+            await asyncio.sleep(sleep_seconds)
+            await send_hourly_reports()
+        except Exception as e:
+            logger.error(f"Ошибка в планировщике отчетов: {e}", exc_info=True)
+            await asyncio.sleep(60)  # Ждем минуту перед повтором
 
 
 async def run_bot():
+    logger.info("=" * 50)
+    logger.info("Запуск бота...")
+    logger.info("=" * 50)
+    
     if not BOT_TOKEN:
+        logger.error("BOT_TOKEN не установлен в переменных окружения")
         raise RuntimeError("BOT_TOKEN not set in environment")
-    init_db()
-    await asyncio.create_task(hourly_report_scheduler())
-    await dp.start_polling(bot)
+    
+    logger.info(f"BOT_TOKEN установлен: {BOT_TOKEN[:10]}..." if len(BOT_TOKEN) > 10 else "BOT_TOKEN установлен")
+    
+    try:
+        logger.info("Инициализация базы данных...")
+        init_db()
+        logger.info("✓ База данных инициализирована")
+        
+        # Запускаем планировщик отчетов в фоне
+        logger.info("Запуск планировщика часовых отчетов в фоновом режиме...")
+        asyncio.create_task(hourly_report_scheduler())
+        logger.info("✓ Планировщик запущен")
+        
+        logger.info("Начало polling бота...")
+        logger.info("Бот готов к работе. Ожидание сообщений...")
+        logger.info("=" * 50)
+        await dp.start_polling(bot, allowed_updates=["message"])
+    except KeyboardInterrupt:
+        logger.info("Получен сигнал остановки (KeyboardInterrupt)")
+    except Exception as e:
+        logger.error(f"Критическая ошибка при запуске бота: {e}", exc_info=True)
+        raise
+    finally:
+        logger.info("Остановка бота...")
+        try:
+            await bot.session.close()
+            logger.info("✓ Сессия бота закрыта")
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии сессии бота: {e}")
+        logger.info("Бот остановлен")
+        logger.info("=" * 50)
