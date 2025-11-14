@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Tuple
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 from aiogram.enums import ParseMode
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger('aiogram').setLevel(logging.INFO)
 logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
-bot = Bot(BOT_TOKEN)
+bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 # Simple in-memory state to ask for reward input
