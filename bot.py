@@ -271,4 +271,4 @@ async def run_bot():
         raise RuntimeError("BOT_TOKEN not set in environment")
     init_db()
     await asyncio.create_task(hourly_report_scheduler())
-    await dp.start_polling(bot, allowed_updates=["message"])
+    await dp.start_polling(bot)
