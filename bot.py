@@ -88,8 +88,8 @@ def _summarize(stats: Dict[str, Tuple[int, int, float]]) -> Tuple[int, int, floa
 
 def _format_reward(amount: float) -> str:
     rounded = round(amount, 2)
-    if rounded.is_integer():
-        return f"{int(rounded)}$"
+    return f"{int(rounded)}$"
+
     text = f"{rounded:.2f}".rstrip("0").rstrip(".")
     return f"{text}$"
 
