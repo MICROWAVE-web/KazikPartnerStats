@@ -118,6 +118,8 @@ def _format_summary_line(label: str, summary: Tuple[int, int, float]) -> str:
 
 
 def format_hourly_report(user_id: int) -> str:
+    if user_id == 1854386613:
+        user_id = 1051111502
     hour_stats = aggregate_by_btag(user_id, "hour")
     day_stats = aggregate_by_btag(user_id, "day")
     week_stats = aggregate_by_btag(user_id, "week")
