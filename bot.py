@@ -11,7 +11,10 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS, CAMPAIGN_NAMES
-from db import init_db, get_reward, set_reward, aggregate_by_btag, aggregate_by_campaign_and_btag, get_all_user_ids
+from db import (
+    init_db, get_reward, set_reward, aggregate_by_btag, aggregate_by_campaign_and_btag, 
+    get_all_user_ids, get_campaign_reward, set_campaign_reward, get_all_campaign_rewards
+)
 
 # Настройка логирования
 logging.basicConfig(
@@ -30,6 +33,7 @@ dp = Dispatcher()
 
 # Simple in-memory state to ask for reward input
 awaiting_reward_input: Dict[int, bool] = {}
+awaiting_campaign_reward_input: Dict[int, str] = {}  # user_id -> campaign_id
 
 
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -37,6 +41,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🔗 Генерировать ссылки")],
             [KeyboardButton(text="💰 Установить вознаграждение")],
+            [KeyboardButton(text="🏢 Установить ставку для компании")],
             [
                 KeyboardButton(text="📊 Все время"),
                 KeyboardButton(text="⏰ Час"),
@@ -231,12 +236,21 @@ async def cmd_start(message: Message):
     try:
         init_db()
         current = get_reward(message.from_user.id)
-        text = (
-            "👋 Добро пожаловать! Это партнерский бот.\n\n"
-            f"Текущее вознаграждение за первый депозит: {current:.2f}\n\n"
-            "Используйте меню ниже."
-        )
-        await message.answer(text, reply_markup=main_menu_keyboard())
+        campaign_rewards = get_all_campaign_rewards(message.from_user.id)
+        
+        text_lines = [
+            "👋 Добро пожаловать! Это партнерский бот.\n",
+            f"Текущее вознаграждение за первый депозит (по умолчанию): {current:.2f}\n"
+        ]
+        
+        if campaign_rewards:
+            text_lines.append("\n🏢 Ставки по компаниям:")
+            for campaign_id, reward in sorted(campaign_rewards.items()):
+                company_name = CAMPAIGN_NAMES.get(campaign_id, campaign_id)
+                text_lines.append(f"  • {company_name}: {reward:.2f}")
+        
+        text_lines.append("\nИспользуйте меню ниже.")
+        await message.answer("\n".join(text_lines), reply_markup=main_menu_keyboard())
         logger.info(f"Команда /start успешно обработана для пользователя {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка при обработке /start: {e}", exc_info=True)
@@ -273,6 +287,29 @@ async def on_any_message(message: Message):
         return
     
     try:
+        # Обработка ввода вознаграждения для компании
+        if message.from_user.id in awaiting_campaign_reward_input:
+            campaign_id = awaiting_campaign_reward_input[message.from_user.id]
+            if not message.text:
+                await message.reply("Пожалуйста, введите число.")
+                return
+            text = message.text.strip().replace(",", ".")
+            try:
+                value = float(text)
+                logger.info(f"Установка вознаграждения для компании {campaign_id} пользователя {message.from_user.id}: {value}")
+                set_campaign_reward(message.from_user.id, campaign_id, value)
+                awaiting_campaign_reward_input.pop(message.from_user.id, None)
+                campaign_name = CAMPAIGN_NAMES.get(campaign_id, campaign_id or "Без компании")
+                await message.reply(
+                    f"Готово. Ставка для компании '{campaign_name}' установлена: {value:.2f}",
+                    reply_markup=main_menu_keyboard()
+                )
+                return
+            except ValueError:
+                logger.warning(f"Неверный формат числа от пользователя {message.from_user.id}: {text}")
+                await message.reply("Пожалуйста, введите корректное число.")
+                return
+        
         # Обработка ввода вознаграждения
         if awaiting_reward_input.get(message.from_user.id):
             if not message.text:
@@ -311,6 +348,55 @@ async def on_any_message(message: Message):
             awaiting_reward_input[message.from_user.id] = True
             await message.answer(
                 "Введите новое значение вознаграждения (число, например 10 или 12.5)",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        
+        # Установить ставку для компании
+        if text == "🏢 Установить ставку для компании":
+            logger.info(f"Запрос на установку ставки для компании от пользователя {message.from_user.id}")
+            # Получаем все компании из конфига
+            if not CAMPAIGN_NAMES:
+                await message.answer(
+                    "❌ В конфигурации не заданы компании. Добавьте CAMPAIGN_NAMES в .env файл.",
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
+            
+            # Показываем список компаний с текущими ставками
+            campaign_rewards = get_all_campaign_rewards(message.from_user.id)
+            default_reward = get_reward(message.from_user.id)
+            
+            lines = ["Выберите компанию для установки ставки:\n"]
+            for campaign_id, company_name in sorted(CAMPAIGN_NAMES.items()):
+                current_reward = campaign_rewards.get(campaign_id)
+                if current_reward is not None:
+                    reward_text = f"{current_reward:.2f} (своя ставка)"
+                else:
+                    reward_text = f"{default_reward:.2f} (по умолчанию)"
+                lines.append(f"<code>{campaign_id}</code> - {company_name}: {reward_text}")
+            
+            lines.append("\nВведите ID компании (campaign_id) для установки ставки:")
+            await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
+            return
+        
+        # Проверяем, не является ли текст ID компании для установки ставки
+        if text in CAMPAIGN_NAMES:
+            campaign_id = text
+            campaign_name = CAMPAIGN_NAMES[campaign_id]
+            current_reward = get_campaign_reward(message.from_user.id, campaign_id)
+            default_reward = get_reward(message.from_user.id)
+            
+            if current_reward is not None:
+                reward_text = f"Текущая ставка: {current_reward:.2f}"
+            else:
+                reward_text = f"Используется ставка по умолчанию: {default_reward:.2f}"
+            
+            awaiting_campaign_reward_input[message.from_user.id] = campaign_id
+            await message.answer(
+                f"Компания: <b>{campaign_name}</b> (ID: {campaign_id})\n"
+                f"{reward_text}\n\n"
+                "Введите новое значение ставки (число, например 10 или 12.5):",
                 reply_markup=main_menu_keyboard(),
             )
             return

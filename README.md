@@ -6,9 +6,9 @@
 - Редактируемое меню с inline-кнопками
 - Команда `/generate` — генерация ссылок по шаблону
 - Прием постбеков:
-  - `/<telegram_user_id>/registration?played_id=...&btag=...`
-  - `/<telegram_user_id>/firstdep?played_id=...&btag=...`
-- Статистика по btag: регистрации, первые депозиты, сумма вознаграждений
+  - `/<telegram_user_id>/registration?btag=...&campaign_id=...`
+  - `/<telegram_user_id>/firstdep?btag=...&campaign_id=...`
+- Статистика с группировкой по компаниям (campaign_id) и btag: регистрации, первые депозиты, сумма вознаграждений
 - Снимок вознаграждения фиксируется в момент первого депозита
 - Отчеты: совокупный, за месяц, за неделю, за день
 - Пользователь может задать/изменить вознаграждение
@@ -19,8 +19,9 @@
 BOT_TOKEN=xxxx:yyyy
 PREFIX=http://localhost:5000
 FLASK_HOST=0.0.0.0
-FLASK_PORT=5000
+FLASK_PORT=8000
 DEFAULT_REWARD_PER_DEP=0
+CAMPAIGN_NAMES=campaign_id1:Company Name 1,campaign_id2:Company Name 2
 ```
 2. Установите зависимости:
 ```

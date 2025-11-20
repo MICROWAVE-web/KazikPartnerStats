@@ -47,6 +47,19 @@ def init_db() -> None:
             );
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS campaign_rewards (
+                telegram_user_id INTEGER NOT NULL,
+                campaign_id TEXT NOT NULL,
+                reward_per_dep REAL NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (telegram_user_id, campaign_id),
+                FOREIGN KEY (telegram_user_id) REFERENCES users(telegram_user_id)
+            );
+            """
+        )
         # Add campaign_id column if it doesn't exist (for existing databases)
         cur.execute(
             """
@@ -94,6 +107,45 @@ def get_reward(telegram_user_id: int) -> float:
         return float(row[0]) if row else 0.0
 
 
+def get_campaign_reward(telegram_user_id: int, campaign_id: Optional[str]) -> Optional[float]:
+    """Returns campaign-specific reward if set, None otherwise"""
+    if not campaign_id:
+        return None
+    ensure_user(telegram_user_id)
+    with open_db() as conn:
+        row = conn.execute(
+            "SELECT reward_per_dep FROM campaign_rewards WHERE telegram_user_id = ? AND campaign_id = ?",
+            (telegram_user_id, campaign_id),
+        ).fetchone()
+        return float(row[0]) if row else None
+
+
+def set_campaign_reward(telegram_user_id: int, campaign_id: str, amount: float) -> None:
+    """Set reward per deposit for a specific campaign"""
+    ensure_user(telegram_user_id)
+    with open_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO campaign_rewards (telegram_user_id, campaign_id, reward_per_dep, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(telegram_user_id, campaign_id) 
+            DO UPDATE SET reward_per_dep = ?, updated_at = CURRENT_TIMESTAMP
+            """,
+            (telegram_user_id, campaign_id, amount, amount),
+        )
+
+
+def get_all_campaign_rewards(telegram_user_id: int) -> Dict[str, float]:
+    """Get all campaign rewards for a user"""
+    ensure_user(telegram_user_id)
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT campaign_id, reward_per_dep FROM campaign_rewards WHERE telegram_user_id = ?",
+            (telegram_user_id,),
+        ).fetchall()
+        return {row["campaign_id"]: float(row["reward_per_dep"]) for row in rows}
+
+
 def insert_event(
     telegram_user_id: int,
     event_type: str,
@@ -105,7 +157,9 @@ def insert_event(
     reward_snapshot: Optional[float] = None
     if event_type == "first_dep":
         # snapshot the reward at the time of first deposit
-        reward_snapshot = get_reward(telegram_user_id)
+        # Use campaign-specific reward if available, otherwise use default reward
+        campaign_reward = get_campaign_reward(telegram_user_id, campaign_id)
+        reward_snapshot = campaign_reward if campaign_reward is not None else get_reward(telegram_user_id)
     with open_db() as conn:
         conn.execute(
             """
