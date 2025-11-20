@@ -10,8 +10,8 @@ from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 from aiogram.enums import ParseMode
 
-from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS
-from db import init_db, get_reward, set_reward, aggregate_by_btag, get_all_user_ids
+from config import BOT_TOKEN, PREFIX, ALLOWED_USER_IDS, CAMPAIGN_NAMES
+from db import init_db, get_reward, set_reward, aggregate_by_btag, aggregate_by_campaign_and_btag, get_all_user_ids
 
 # Настройка логирования
 logging.basicConfig(
@@ -59,7 +59,7 @@ def make_links_text(user_id: int) -> str:
         "Ссылка для регистрации:\n"
         f"<code>{PREFIX}/{user_id}/registration?btag=${{btag}}</code>\n\n"
         "Ссылка для первого депозита:\n"
-        f"<code>{PREFIX}/{user_id}/firstdep?btag=${{btag}}</code>"
+        f"<code>{PREFIX}/{user_id}/firstdep?btag=${{btag}}&campaign_id=${{campaign_id}}</code>"
     )
 
 
@@ -67,33 +67,57 @@ def format_report(user_id: int, period: str) -> str:
     mapping = {"all": "Все время", "hour": "Час", "day": "День", "week": "Неделя", "last_week": "Прошлая неделя",
                "month": "Месяц"}
     title = mapping.get(period, "Все время")
-    stats = aggregate_by_btag(user_id, period)
+    stats = aggregate_by_campaign_and_btag(user_id, period)
     if not stats:
         return f"📊 Отчет ({title})\n\nНет данных."
+    
     lines = [f"📊 Отчет ({title})", ""]
     total_regs = total_deps = 0
-    for btag, (regs, deps, reward_sum) in sorted(stats.items()):
-        lines.append(
-            "\n".join([
-                f"<blockquote>BTag: {btag or '-'}",
-                f"Реги: {regs}",
-                f"Депы: {deps}",
-                f"Сумма: {round(reward_sum, 2)}</blockquote>",
-            ])
-        )
-        lines.append("")  # пустая строка между блоками
-        # lines.append(f"{btag or '-'} | {regs} | {deps}")
-        total_regs += regs
-        total_deps += deps
-    lines += ["", f"Итого: регистрации {total_regs}, депозиты {total_deps}"]
+    total_reward = 0.0
+    
+    # Sort campaigns by name (from config) or by campaign_id
+    def get_campaign_name(campaign_id: str) -> str:
+        if campaign_id in CAMPAIGN_NAMES:
+            return CAMPAIGN_NAMES[campaign_id]
+        return campaign_id or "Без компании"
+    
+    sorted_campaigns = sorted(stats.keys(), key=lambda x: get_campaign_name(x))
+    
+    for campaign_id in sorted_campaigns:
+        campaign_name = get_campaign_name(campaign_id)
+        campaign_stats = stats[campaign_id]
+        if not campaign_stats:
+            continue
+        
+        # Add company header
+        lines.append(f"<b>🏢 {campaign_name}</b>")
+        lines.append("")
+        
+        # Add btag stats within company
+        for btag, (regs, deps, reward_sum) in sorted(campaign_stats.items()):
+            lines.append(
+                "\n".join([
+                    f"<blockquote>BTag: {btag or '-'}",
+                    f"Реги: {regs}",
+                    f"Депы: {deps}",
+                    f"Сумма: {round(reward_sum, 2)}</blockquote>",
+                ])
+            )
+            lines.append("")  # пустая строка между блоками
+            total_regs += regs
+            total_deps += deps
+            total_reward += reward_sum
+        
+        lines.append("")  # пустая строка между компаниями
+    
+    lines += ["", f"Итого: регистрации {total_regs}, депозиты {total_deps}, сумма: {round(total_reward, 2)}"]
 
     return "\n".join([
         f"📊 Отчет ({title})",
         "",
         "🤑 ==== ROYAL ==== 🤑",
-        *lines,
         "",
-        "Нет данных.",
+        *lines,
     ])
 
 
@@ -117,18 +141,30 @@ def _format_summary_line(label: str, summary: Tuple[int, int, float]) -> str:
     return f"{(label + ':').ljust(11)}{regs} рег | 💰{deps}fd | {_format_reward(reward)}"
 
 
+def _summarize_campaign_stats(stats: Dict[str, Dict[str, Tuple[int, int, float]]]) -> Tuple[int, int, float]:
+    total_regs = 0
+    total_deps = 0
+    total_reward = 0.0
+    for campaign_stats in stats.values():
+        for regs, deps, reward in campaign_stats.values():
+            total_regs += regs
+            total_deps += deps
+            total_reward += reward
+    return total_regs, total_deps, total_reward
+
+
 def format_hourly_report(user_id: int) -> str:
     if user_id == 1854386613:
         user_id = 1051111502
-    hour_stats = aggregate_by_btag(user_id, "hour")
-    day_stats = aggregate_by_btag(user_id, "day")
-    week_stats = aggregate_by_btag(user_id, "week")
-    last_week_stats = aggregate_by_btag(user_id, "last_week")
+    hour_stats = aggregate_by_campaign_and_btag(user_id, "hour")
+    day_stats = aggregate_by_campaign_and_btag(user_id, "day")
+    week_stats = aggregate_by_campaign_and_btag(user_id, "week")
+    last_week_stats = aggregate_by_campaign_and_btag(user_id, "last_week")
 
-    hour_summary = _summarize(hour_stats)
-    day_summary = _summarize(day_stats)
-    week_summary = _summarize(week_stats)
-    last_week_summary = _summarize(last_week_stats)
+    hour_summary = _summarize_campaign_stats(hour_stats)
+    day_summary = _summarize_campaign_stats(day_stats)
+    week_summary = _summarize_campaign_stats(week_stats)
+    last_week_summary = _summarize_campaign_stats(last_week_stats)
 
     summary_lines = [
         _format_summary_line("Час", hour_summary),
@@ -139,9 +175,20 @@ def format_hourly_report(user_id: int) -> str:
 
     sources_lines = ["Все источники за текущий день:"]
     if day_stats:
-        for btag, (regs, deps, _) in sorted(day_stats.items()):
-            label = btag or "-"
-            sources_lines.append(f"{label} - {regs} рег, {deps} депов")
+        def get_campaign_name(campaign_id: str) -> str:
+            if campaign_id in CAMPAIGN_NAMES:
+                return CAMPAIGN_NAMES[campaign_id]
+            return campaign_id or "Без компании"
+        
+        sorted_campaigns = sorted(day_stats.keys(), key=lambda x: get_campaign_name(x))
+        for campaign_id in sorted_campaigns:
+            campaign_name = get_campaign_name(campaign_id)
+            campaign_stats = day_stats[campaign_id]
+            if campaign_stats:
+                sources_lines.append(f"\n<b>🏢 {campaign_name}</b>")
+                for btag, (regs, deps, _) in sorted(campaign_stats.items()):
+                    label = btag or "-"
+                    sources_lines.append(f"  {label} - {regs} рег, {deps} депов")
     else:
         sources_lines.append("Нет данных.")
 

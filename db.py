@@ -40,12 +40,26 @@ def init_db() -> None:
                 event_type TEXT NOT NULL CHECK(event_type IN ('registration','first_dep')),
                 played_id TEXT,
                 btag TEXT,
+                campaign_id TEXT,
                 reward_snapshot REAL, -- only for first_dep
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (telegram_user_id) REFERENCES users(telegram_user_id)
             );
             """
         )
+        # Add campaign_id column if it doesn't exist (for existing databases)
+        cur.execute(
+            """
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='events'
+            """
+        )
+        if cur.fetchone():
+            # Check if campaign_id column exists
+            cur.execute("PRAGMA table_info(events)")
+            columns = [row[1] for row in cur.fetchall()]
+            if 'campaign_id' not in columns:
+                cur.execute("ALTER TABLE events ADD COLUMN campaign_id TEXT")
 
 
 def ensure_user(telegram_user_id: int) -> None:
@@ -85,6 +99,7 @@ def insert_event(
     event_type: str,
     played_id: Optional[str],
     btag: Optional[str],
+    campaign_id: Optional[str] = None,
 ) -> None:
     ensure_user(telegram_user_id)
     reward_snapshot: Optional[float] = None
@@ -94,10 +109,10 @@ def insert_event(
     with open_db() as conn:
         conn.execute(
             """
-            INSERT INTO events (telegram_user_id, event_type, played_id, btag, reward_snapshot)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO events (telegram_user_id, event_type, played_id, btag, campaign_id, reward_snapshot)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (telegram_user_id, event_type, played_id, btag, reward_snapshot),
+            (telegram_user_id, event_type, played_id, btag, campaign_id, reward_snapshot),
         )
 
 
@@ -134,6 +149,7 @@ def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int
     """
     Returns mapping: btag -> (registrations_count, first_deposits_count, total_reward_sum)
     period in {"all","hour","day","week","last_week","month"}
+    DEPRECATED: Use aggregate_by_campaign_and_btag instead
     """
     period_bounds = _period_bounds(period)
     params = [telegram_user_id]
@@ -142,28 +158,6 @@ def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int
         time_filter = " AND created_at >= ? AND created_at <= ?"
         params.append(period_bounds[0])
         params.append(period_bounds[1])
-
-    sql = f"""
-    WITH regs AS (
-        SELECT btag, COUNT(*) AS reg_count
-        FROM events
-        WHERE telegram_user_id = ? AND event_type = 'registration'{time_filter}
-        GROUP BY btag
-    ),
-    deps AS (
-        SELECT btag, COUNT(*) AS dep_count, COALESCE(SUM(reward_snapshot), 0) AS reward_sum
-        FROM events
-        WHERE telegram_user_id = ? AND event_type = 'first_dep'{time_filter}
-        GROUP BY btag
-    )
-    SELECT COALESCE(r.btag, d.btag) AS btag,
-           COALESCE(r.reg_count, 0) AS registrations,
-           COALESCE(d.dep_count, 0) AS first_deps,
-           COALESCE(d.reward_sum, 0) AS reward_sum
-    FROM regs r
-    FULL OUTER JOIN deps d ON r.btag = d.btag
-    ;
-    """
 
     # SQLite doesn't support FULL OUTER JOIN. Emulate via UNION of LEFT JOINs.
     sql_left = f"""
@@ -213,6 +207,65 @@ def aggregate_by_btag(telegram_user_id: int, period: str) -> Dict[str, Tuple[int
         for row in rows_left + rows_right:
             btag = row["btag"] or ""
             results[btag] = (int(row["registrations"]), int(row["first_deps"]), float(row["reward_sum"]))
+    return results
+
+
+def aggregate_by_campaign_and_btag(telegram_user_id: int, period: str) -> Dict[str, Dict[str, Tuple[int, int, float]]]:
+    """
+    Returns nested mapping: campaign_id -> {btag -> (registrations_count, first_deposits_count, total_reward_sum)}
+    period in {"all","hour","day","week","last_week","month"}
+    """
+    period_bounds = _period_bounds(period)
+    params = [telegram_user_id]
+    time_filter = ""
+    if period_bounds is not None:
+        time_filter = " AND created_at >= ? AND created_at <= ?"
+        params.append(period_bounds[0])
+        params.append(period_bounds[1])
+
+    # Get registrations grouped by campaign_id and btag
+    sql_regs = f"""
+    SELECT COALESCE(campaign_id, '') AS campaign_id, COALESCE(btag, '') AS btag, COUNT(*) AS reg_count
+    FROM events
+    WHERE telegram_user_id = ? AND event_type = 'registration'{time_filter}
+    GROUP BY campaign_id, btag
+    """
+
+    # Get deposits grouped by campaign_id and btag
+    sql_deps = f"""
+    SELECT COALESCE(campaign_id, '') AS campaign_id, COALESCE(btag, '') AS btag, 
+           COUNT(*) AS dep_count, COALESCE(SUM(reward_snapshot), 0) AS reward_sum
+    FROM events
+    WHERE telegram_user_id = ? AND event_type = 'first_dep'{time_filter}
+    GROUP BY campaign_id, btag
+    """
+
+    results: Dict[str, Dict[str, Tuple[int, int, float]]] = {}
+    with open_db() as conn:
+        # Get all registrations
+        regs_rows = conn.execute(sql_regs, params).fetchall()
+        for row in regs_rows:
+            campaign_id = row["campaign_id"] or ""
+            btag = row["btag"] or ""
+            if campaign_id not in results:
+                results[campaign_id] = {}
+            if btag not in results[campaign_id]:
+                results[campaign_id][btag] = (0, 0, 0.0)
+            regs, deps, reward = results[campaign_id][btag]
+            results[campaign_id][btag] = (int(row["reg_count"]), deps, reward)
+
+        # Get all deposits and merge
+        deps_rows = conn.execute(sql_deps, params).fetchall()
+        for row in deps_rows:
+            campaign_id = row["campaign_id"] or ""
+            btag = row["btag"] or ""
+            if campaign_id not in results:
+                results[campaign_id] = {}
+            if btag not in results[campaign_id]:
+                results[campaign_id][btag] = (0, 0, 0.0)
+            regs, deps, reward = results[campaign_id][btag]
+            results[campaign_id][btag] = (regs, int(row["dep_count"]), float(row["reward_sum"]))
+
     return results
 
 
