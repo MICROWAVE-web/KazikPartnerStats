@@ -10,7 +10,8 @@ app = Flask(__name__)
 def registration(telegram_user_id: int):
     player_id = '-'
     btag = request.args.get('btag')
-    insert_event(telegram_user_id, 'registration', player_id, btag)
+    campaign_id = request.args.get('campaign_id')
+    insert_event(telegram_user_id, 'registration', player_id, btag, campaign_id)
     return jsonify({"status": "ok"})
 
 

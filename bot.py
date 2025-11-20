@@ -57,7 +57,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 def make_links_text(user_id: int) -> str:
     return (
         "Ссылка для регистрации:\n"
-        f"<code>{PREFIX}/{user_id}/registration?btag=${{btag}}</code>\n\n"
+        f"<code>{PREFIX}/{user_id}/registration?btag=${{btag}}&campaign_id=${{campaign_id}}</code>\n\n"
         "Ссылка для первого депозита:\n"
         f"<code>{PREFIX}/{user_id}/firstdep?btag=${{btag}}&campaign_id=${{campaign_id}}</code>"
     )
